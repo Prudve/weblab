@@ -1,69 +1,43 @@
-// --- 1. FIREBASE CONFIGURATION ---
-const firebaseConfig = {
-    apiKey: "AIzaSyApSHpM9dtU_SVAPAiS_ZYXaFOQ6JqQd_U",
-    authDomain: "clubcalender-cdb0a.firebaseapp.com",
-    projectId: "clubcalender-cdb0a",
-    storageBucket: "clubcalender-cdb0a.firebasestorage.app",
-    messagingSenderId: "462718778492",
-    appId: "1:462718778492:web:c871750b6f12344fbe9df9",
-    measurementId: "G-G0YDY06DM1"
-};
-
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-
-// --- 2. APP STATE ---
 let nav = 0;
 let clickedDate = null;
-let currentUser = { isLoggedIn: false, clubName: '', userName: '' };
+let events = localStorage.getItem('clubEvents') ? JSON.parse(localStorage.getItem('clubEvents')) : [];
+
+// Current session state
+let currentUser = {
+    isLoggedIn: false,
+    clubName: '',
+    userName: ''
+};
+
 const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-// --- 3. DYNAMIC UI INITIALIZATION ---
-async function fetchClubsIntoDropdown() {
-    const dropdown = document.getElementById('loginClub');
-    dropdown.innerHTML = '<option value="" disabled selected>Select Your Club</option>';
-    
-    try {
-        const snapshot = await db.collection('users').get();
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            const option = document.createElement('option');
-            option.value = data.clubName;
-            option.innerText = data.clubName;
-            dropdown.appendChild(option);
-        });
-    } catch (error) {
-        console.error("Error fetching clubs:", error);
-    }
-}
-
-// --- 4. AUTHENTICATION LOGIC ---
+// --- AUTHENTICATION ---
 function showLoginModal() {
-    fetchClubsIntoDropdown();
     document.getElementById('loginModal').style.display = 'block';
     document.getElementById('modalBackdrop').style.display = 'block';
 }
 
-async function handleAuth() {
-    const club = document.getElementById('loginClub').value;
+function closeLoginModal() {
+    document.getElementById('loginModal').style.display = 'none';
+    document.getElementById('modalBackdrop').style.display = 'none';
+}
+
+function handleAuth() {
+    const club = document.getElementById('loginClub').value.trim();
     const user = document.getElementById('loginUser').value.trim();
     const pass = document.getElementById('loginPass').value;
 
-    const snapshot = await db.collection('users')
-        .where('clubName', '==', club)
-        .where('username', '==', user)
-        .where('password', '==', pass)
-        .get();
-
-    if (!snapshot.empty) {
+    if (pass === "college123" && club !== "" && user !== "") {
         currentUser = { isLoggedIn: true, clubName: club, userName: user };
+        
         document.getElementById('login-trigger-btn').classList.add('hidden');
         document.getElementById('admin-controls').classList.remove('hidden');
-        document.getElementById('admin-msg').innerText = `${user} (${club})`;
-        closeAllModals();
-        load();
+        document.getElementById('admin-msg').innerText = `President: ${user} (${club})`;
+        
+        closeLoginModal();
+        load(); // Refresh to enable interaction
     } else {
-        alert("Authentication failed.");
+        alert("Please fill all fields. Password is 'college123'");
     }
 }
 
@@ -74,7 +48,7 @@ function logout() {
     load();
 }
 
-// --- 5. CALENDAR ENGINE ---
+// --- CALENDAR LOGIC ---
 function load() {
     const dt = new Date();
     if (nav !== 0) dt.setMonth(new Date().getMonth() + nav);
@@ -90,40 +64,35 @@ function load() {
         `${dt.toLocaleDateString('en-us', { month: 'long' })} ${year}`;
 
     const calendar = document.getElementById('calendar');
-    
-    db.collection('events').onSnapshot((snapshot) => {
-        const allEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        calendar.innerHTML = ''; 
+    calendar.innerHTML = '';
 
-        for(let i = 1; i <= paddingDays + daysInMonth; i++) {
-            const daySquare = document.createElement('div');
-            daySquare.classList.add('day');
-            const dayString = `${month + 1}/${i - paddingDays}/${year}`;
+    for(let i = 1; i <= paddingDays + daysInMonth; i++) {
+        const daySquare = document.createElement('div');
+        daySquare.classList.add('day');
+        const dayString = `${month + 1}/${i - paddingDays}/${year}`;
 
-            if (i > paddingDays) {
-                daySquare.innerText = i - paddingDays;
-                const dayEvents = allEvents.filter(e => e.date === dayString);
-                
-                dayEvents.forEach(e => {
-                    const div = document.createElement('div');
-                    div.classList.add('event-label');
-                    div.innerHTML = `<span class="club-tag">${e.club}</span> ${e.title}`;
-                    daySquare.appendChild(div);
-                });
-
-                daySquare.onclick = () => openEventModal(dayString, dayEvents);
-            } else {
-                daySquare.classList.add('padding');
+        if (i > paddingDays) {
+            daySquare.innerText = i - paddingDays;
+            
+            const dayEvents = events.filter(e => e.date === dayString);
+            if (dayEvents.length > 0) {
+                const eventIndicator = document.createElement('div');
+                eventIndicator.classList.add('event-marker'); // Use a marker instead of title
+                eventIndicator.innerText = `${dayEvents.length} Event(s)`;
+                daySquare.appendChild(eventIndicator);
             }
-            calendar.appendChild(daySquare);
+
+            daySquare.onclick = () => openModal(dayString);
+        } else {
+            daySquare.classList.add('padding');
         }
-    });
+        calendar.appendChild(daySquare);
+    }
 }
 
-// --- 6. EVENT MANAGEMENT ---
-function openEventModal(date, dayEvents) {
+function openModal(date) {
     clickedDate = date;
-    document.getElementById('modalDateTitle').innerText = `Events for ${date}`;
+    document.getElementById('modalDateTitle').innerText = `Events: ${date}`;
     
     const adminForm = document.getElementById('admin-only-form');
     if (currentUser.isLoggedIn) {
@@ -133,88 +102,116 @@ function openEventModal(date, dayEvents) {
         adminForm.classList.add('hidden');
     }
 
-    renderEventItems(dayEvents);
+    renderEventList();
     document.getElementById('newEventModal').style.display = 'block';
     document.getElementById('modalBackdrop').style.display = 'block';
 }
 
-function renderEventItems(dayEvents) {
+function renderEventList() {
     const list = document.getElementById('existing-events-list');
-    list.innerHTML = dayEvents.length === 0 ? '<p>No events scheduled.</p>' : '';
+    const dayEvents = events.filter(e => e.date === clickedDate);
+    list.innerHTML = dayEvents.length === 0 ? '<p>No events today.</p>' : '';
     
     dayEvents.forEach(e => {
         const item = document.createElement('div');
-        item.className = 'event-item';
+        item.className = 'event-item-detailed';
         const canDelete = currentUser.isLoggedIn && (e.club === currentUser.clubName);
         
-        // Use the formatTime12hr function for both start and end times
-        const startTimeFormatted = formatTime12hr(e.startTime);
-        const endTimeFormatted = formatTime12hr(e.endTime);
-        const timeText = `${startTimeFormatted} - ${endTimeFormatted}`;
-
         item.innerHTML = `
-            <div class="event-info">
-                <strong>${e.club}</strong>: ${e.title}
-                <span class="event-time-span">⏰ ${timeText}</span>
+            <div style="flex-grow: 1;">
+                <div class="event-item-header">
+                    <strong>${e.club}</strong>: ${e.title}
+                </div>
+                <div class="event-item-desc">${e.description || 'No description provided.'}</div>
             </div>
-            ${canDelete ? `<button class="del-btn" onclick="deleteEvent('${e.id}')">Delete</button>` : ''}
+            ${canDelete ? `<button class="del-btn" onclick="deleteEvent('${e.title}', '${e.date}')">Delete</button>` : ''}
         `;
         list.appendChild(item);
     });
 }
 
-async function saveEvent() {
+function saveEvent() {
     const titleInput = document.getElementById('eventTitleInput');
-    const startTimeInput = document.getElementById('startTime');
-    const endTimeInput = document.getElementById('endTime');
-
-    if (titleInput.value && startTimeInput.value && endTimeInput.value && currentUser.isLoggedIn) {
-        await db.collection('events').add({
-            date: clickedDate,
-            title: titleInput.value,
-            startTime: startTimeInput.value,
-            endTime: endTimeInput.value,
-            club: currentUser.clubName,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    const descInput = document.getElementById('eventDescInput'); // Get description
+    
+    if (titleInput.value) {
+        events.push({ 
+            date: clickedDate, 
+            title: titleInput.value, 
+            description: descInput.value, // Save description
+            club: currentUser.clubName 
         });
-        
-        // Reset inputs
+        localStorage.setItem('clubEvents', JSON.stringify(events));
         titleInput.value = '';
-        startTimeInput.value = '';
-        endTimeInput.value = '';
-        
-        closeAllModals();
-    } else {
-        alert("Please fill in the event name and both start/end times.");
+        descInput.value = ''; // Clear description
+        renderEventList();
+        load();
     }
 }
 
-async function deleteEvent(id) {
-    if(confirm("Permanently delete this event?")) {
-        await db.collection('events').doc(id).delete();
-        closeAllModals();
-    }
+function deleteEvent(title, date) {
+    // Filter out the specific event
+    events = events.filter(e => !(e.title === title && e.date === date));
+    localStorage.setItem('clubEvents', JSON.stringify(events));
+    renderEventList();
+    load();
 }
 
-// --- 7. UI CONTROLS ---
-function closeAllModals() {
-    document.getElementById('loginModal').style.display = 'none';
+function closeModal() {
     document.getElementById('newEventModal').style.display = 'none';
     document.getElementById('modalBackdrop').style.display = 'none';
+}
+
+function closeAllModals() {
+    closeModal();
+    closeLoginModal();
 }
 
 document.getElementById('backButton').onclick = () => { nav--; load(); };
 document.getElementById('nextButton').onclick = () => { nav++; load(); };
 
 load();
-function formatTime12hr(timeString) {
-    if (!timeString) return "Time not set";
+
+// Add this at the very bottom of script.js or inside an init function
+function initJumpToDate() {
+    const monthSelect = document.getElementById('jumpMonth');
+    const yearSelect = document.getElementById('jumpYear');
+    const currentYear = new Date().getFullYear();
+
+    // Populate Months
+    const monthNames = ["January", "February", "March", "April", "May", "June", 
+                        "July", "August", "September", "October", "November", "December"];
     
-    let [hours, minutes] = timeString.split(':');
-    let ampm = hours >= 12 ? 'PM' : 'AM';
-    
-    hours = hours % 12;
-    hours = hours ? hours : 12; // The hour '0' should be '12'
-    
-    return `${hours}:${minutes} ${ampm}`;
+    monthNames.forEach((name, index) => {
+        let opt = document.createElement('option');
+        opt.value = index;
+        opt.innerHTML = name;
+        if (index === new Date().getMonth()) opt.selected = true;
+        monthSelect.appendChild(opt);
+    });
+
+    // Populate Years (e.g., 5 years back to 10 years ahead)
+    for (let i = currentYear - 5; i <= currentYear + 10; i++) {
+        let opt = document.createElement('option');
+        opt.value = i;
+        opt.innerHTML = i;
+        if (i === currentYear) opt.selected = true;
+        yearSelect.appendChild(opt);
+    }
 }
+
+// Function to handle the "Go" button
+function jumpToDate() {
+    const selectedMonth = parseInt(document.getElementById('jumpMonth').value);
+    const selectedYear = parseInt(document.getElementById('jumpYear').value);
+    
+    const now = new Date();
+    // Calculate the difference in months between "now" and the "selected date"
+    // This updates the global 'nav' variable your code uses
+    nav = (selectedYear - now.getFullYear()) * 12 + (selectedMonth - now.getMonth());
+    
+    load();
+}
+
+// Call the initializer
+initJumpToDate();
